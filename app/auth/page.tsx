@@ -255,7 +255,7 @@ const [showPassword, setShowPassword] = useState(false)
     }
 
     // Email domain validation
-    const allowedDomains = ["@gmail.com","@oziere.com", "@marwadiuniversity.ac.in", "@baxidy.com"]
+    const allowedDomains = ["@oziere.com", "@marwadiuniversity.ac.in"]
     const isValidDomain = allowedDomains.some((domain) => email.toLowerCase().endsWith(domain))
 
     if (!isValidDomain) {
