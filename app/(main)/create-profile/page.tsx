@@ -36,17 +36,7 @@ export default function CreateProfile() {
   const [nameError, setNameError] = useState<string | null>(null)
   const [existingUsernames, setExistingUsernames] = useState<string[]>([])
 
-  useEffect(() => {
-    if (user) {
-      checkProfile()
-      fetchExistingUsernames()
-    }
-  }, [user])
-
-  if (loading) {
-    return <div className="flex justify-center items-center h-screen"><LoadingSpinner /></div>
-  }
-
+  // Define functions before any early returns to avoid TDZ issues in effects
   const fetchExistingUsernames = async () => {
     try {
       // Only proceed if we have a valid user
@@ -145,6 +135,17 @@ export default function CreateProfile() {
     } finally {
       setLoading(false)
     }
+  }
+
+  useEffect(() => {
+    if (user) {
+      checkProfile()
+      fetchExistingUsernames()
+    }
+  }, [user])
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-screen"><LoadingSpinner /></div>
   }
 
   return (
