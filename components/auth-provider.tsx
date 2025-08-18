@@ -113,7 +113,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single<Profile>()
 
       if (error && error.code !== "PGRST116") {
         console.error("Error fetching profile:", error)
@@ -126,11 +130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (pathname === "/create-profile" || pathname === "/(main)/create-profile") {
           router.push("/")
         }
-      } else {
-        // No profile exists, redirect to create profile
-        if (pathname !== "/create-profile" && pathname !== "/(main)/create-profile" && pathname !== "/auth") {
-          router.push("/create-profile")
-        }
+      } else if (pathname === "/auth" || pathname === "/auth/") {
+        // Only redirect to create-profile if user just came from auth page
+        router.push("/create-profile")
       }
     } catch (error) {
       console.error("Error in fetchProfile:", error)
