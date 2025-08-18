@@ -172,7 +172,7 @@ export default function CreateProfile() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                This is how you'll appear to others. You can change this later.
+                This is how you'll appear to others.
               </p>
             </div>
             <Button type="submit" className="w-full" disabled={loading || !!nameError}>
