@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext, useEffect, useState, useRef } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import type { User } from "@supabase/supabase-js"
@@ -38,94 +38,119 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
+  // Use refs to track state without triggering re-renders
+  const userRef = useRef<User | null>(null)
+  const profileRef = useRef<Profile | null>(null)
+  const [user, _setUser] = useState<User | null>(null)
+  const [profile, _setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  
+  // Wrapper functions to keep refs in sync with state
+  const setUser = (user: User | null) => {
+    userRef.current = user
+    _setUser(user)
+  }
+  
+  const setProfile = (profile: Profile | null) => {
+    profileRef.current = profile
+    _setProfile(profile)
+  }
   const router = useRouter()
   const pathname = usePathname()
 
   useEffect(() => {
-    // Check if we have valid Supabase configuration
-    const hasValidConfig =
-      process.env.NEXT_PUBLIC_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
-      process.env.NEXT_PUBLIC_SUPABASE_URL !== "https://placeholder.supabase.co"
+    let isMounted = true
+    let subscription: { unsubscribe: () => void } | null = null
 
-    if (!hasValidConfig) {
-      if (typeof window !== "undefined") {
+    const initializeAuth = async () => {
+      // Check if we have valid Supabase configuration
+      const hasValidConfig =
+        process.env.NEXT_PUBLIC_SUPABASE_URL &&
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+        process.env.NEXT_PUBLIC_SUPABASE_URL !== "https://placeholder.supabase.co"
+
+      if (!hasValidConfig) {
         console.warn("Supabase not configured properly")
+        setLoading(false)
+        return
       }
-      setLoading(false)
-      return
-    }
 
-    // Get initial session
-    const getInitialSession = async () => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
+        // Get initial session
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (!isMounted) return
+
+        if (error) throw error
 
         if (session?.user) {
           setUser(session.user)
+          
           // Only fetch profile if we don't have it or if the user ID changed
-          if (!profile || profile.id !== session.user.id) {
+          if (!profileRef.current || profileRef.current.id !== session.user.id) {
             await fetchProfile(session.user.id, true)
           }
           
-          // If we're on auth page and have a profile, redirect to home
-          if (pathname === "/auth" && profile) {
+          // If we're on auth page, redirect to home
+          if (pathname === "/auth") {
             router.push("/")
           }
         } else {
           setUser(null)
           setProfile(null)
-          // Only redirect to auth if not already on auth page
           if (pathname !== "/auth") {
             router.push("/auth")
           }
         }
       } catch (error) {
-        console.error("Error getting session:", error)
+        console.error("Error initializing auth:", error)
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
+
+      // Set up auth state change listener
+      const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!isMounted) return
+
+        if (session?.user) {
+          setUser(session.user)
+          
+          // Only fetch profile if we don't have it or if the user ID changed
+          if (!profileRef.current || profileRef.current.id !== session.user.id) {
+            await fetchProfile(session.user.id, true)
+          }
+          
+          // If we're on auth page, redirect to home
+          if (pathname === "/auth") {
+            router.push("/")
+          }
+        } else {
+          setUser(null)
+          setProfile(null)
+          if (pathname !== "/auth") {
+            router.push("/auth")
+          }
+        }
+      })
+      
+      subscription = authListener
     }
 
-    getInitialSession()
+    initializeAuth()
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        // Only fetch profile if we don't have it or if the user ID changed
-        if (!profile || profile.id !== session.user.id) {
-          await fetchProfile(session.user.id, true)
-        }
-
-        // Only redirect if not on auth page and we have a profile
-        if (pathname === "/auth" && profile) {
-          router.push("/")
-        }
-      } else {
-        setUser(null)
-        setProfile(null)
-        if (pathname !== "/auth") {
-          router.push("/auth")
-        }
+    return () => {
+      isMounted = false
+      if (subscription) {
+        subscription.unsubscribe()
       }
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [router, pathname, profile])
+    }
+  }, [router, pathname])
 
   const fetchProfile = async (userId: string, force = false) => {
     // If we already have the profile and not forcing a refresh, skip
-    if (profile?.id === userId && !force) {
-      setLoading(false)
+    if (profileRef.current?.id === userId && !force) {
       return
     }
 
@@ -138,21 +163,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq("id", userId)
         .single<Profile>()
 
-      if (error && error.code !== "PGRST116") {
-        console.error("Error fetching profile:", error)
-        setLoading(false)
+      if (error) {
+        // If no profile exists and we're not on create-profile page
+        if (error.code === "PGRST116" && !pathname.includes("create-profile")) {
+          router.push("/create-profile")
+        } else if (error.code !== "PGRST116") {
+          console.error("Error fetching profile:", error)
+        }
         return
       }
 
       if (data) {
         setProfile(data)
-        // If we have a profile and we're on create-profile page, redirect to home
-        if (pathname === "/create-profile" || pathname === "/(main)/create-profile") {
+        // If we're on create-profile page but already have a profile, redirect to home
+        if (pathname.includes("create-profile")) {
           router.push("/")
         }
-      } else if (pathname === "/auth" || pathname === "/auth/") {
-        // Only redirect to create-profile if user just came from auth page
-        router.push("/create-profile")
       }
     } catch (error) {
       console.error("Error in fetchProfile:", error)
