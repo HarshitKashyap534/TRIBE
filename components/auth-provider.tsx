@@ -68,7 +68,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (session?.user) {
           setUser(session.user)
-          await fetchProfile(session.user.id)
+          // Only fetch profile if we don't have it or if the user ID changed
+          if (!profile || profile.id !== session.user.id) {
+            await fetchProfile(session.user.id, true)
+          }
+          
+          // If we're on auth page and have a profile, redirect to home
+          if (pathname === "/auth" && profile) {
+            router.push("/")
+          }
         } else {
           setUser(null)
           setProfile(null)
@@ -92,10 +100,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setUser(session.user)
-        await fetchProfile(session.user.id)
+        // Only fetch profile if we don't have it or if the user ID changed
+        if (!profile || profile.id !== session.user.id) {
+          await fetchProfile(session.user.id, true)
+        }
 
-        // Only redirect if not on auth page and profile exists
-        if (pathname === "/auth") {
+        // Only redirect if not on auth page and we have a profile
+        if (pathname === "/auth" && profile) {
           router.push("/")
         }
       } else {
@@ -109,10 +120,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
-  }, [router, pathname])
+  }, [router, pathname, profile])
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, force = false) => {
+    // If we already have the profile and not forcing a refresh, skip
+    if (profile?.id === userId && !force) {
+      setLoading(false)
+      return
+    }
+
     try {
+      setLoading(true)
+      
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
@@ -121,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error && error.code !== "PGRST116") {
         console.error("Error fetching profile:", error)
+        setLoading(false)
         return
       }
 
@@ -136,6 +156,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error("Error in fetchProfile:", error)
+      // Ensure loading is set to false on error
+      setLoading(false)
+    } finally {
+      // Always ensure loading is set to false when done
+      setLoading(false)
     }
   }
 
